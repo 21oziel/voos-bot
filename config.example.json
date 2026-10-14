@@ -1,0 +1,17 @@
+{
+  "aeroporto_saida": "GRU",
+  "meses_a_frente": 6,
+  "dias_min": 4,
+  "dias_max": 15,
+  "teto_geral": 1500,
+  "teto_por_destino": {"LIS": 3200, "SCL": 1100},
+  "fracao_da_mediana": 0.75,
+  "travelpayouts_token": "COLE_AQUI",
+  "telegram_token": "COLE_AQUI",
+  "telegram_chat_id": "COLE_AQUI",
+  "feeds_promo": [
+    "https://www.melhoresdestinos.com.br/feed",
+    "https://passageirodeprimeira.com/feed/"
+  ],
+  "palavras_promo": ["transferência", "transferencia", "bônus", "bonus", "livelo", "esfera", "smiles", "latam pass", "azul fidelidade"]
+}
