@@ -1,0 +1,35 @@
+name: voos-bot
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  checar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Restaurar histórico
+        uses: actions/cache@v4
+        with:
+          path: voos.db
+          key: voos-db-${{ github.run_id }}
+          restore-keys: voos-db-
+      - name: Rodar bot
+        env:
+          TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python voos_bot.py
+      - name: Publicar app (docs/)
+        run: |
+          git config user.name "voos-bot"
+          git config user.email "voos-bot@users.noreply.github.com"
+          git add docs
+          git diff --cached --quiet || (git commit -m "atualiza app" && git push)
