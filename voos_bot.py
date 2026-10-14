@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rastreador de voos baratos (dinheiro) + promoções de transferência de pontos.
 Roda uma vez por execução; agende no cron / GitHub Actions / PythonAnywhere."""
-import html, json, os, sqlite3, statistics, sys, urllib.parse, urllib.request
+import html, json, os, urllib.error, sqlite3, statistics, sys, urllib.parse, urllib.request
 import xml.etree.ElementTree as ET
 from datetime import date, datetime
 from pathlib import Path
@@ -56,10 +56,14 @@ def buscar_dinheiro():
     achados = {}
     for mes in meses(CFG.get("meses_a_frente", 6)):
         q = urllib.parse.urlencode({
-            "origin": CFG["aeroporto_saida"], "destination": "-", "departure_at": mes,
+            "origin": CFG["aeroporto_saida"], "departure_at": mes,
             "one_way": "false", "unique": "true", "sorting": "price", "limit": 50,
             "currency": "brl", "token": CFG["travelpayouts_token"]})
-        dados = json.loads(http("https://api.travelpayouts.com/aviasales/v3/prices_for_dates?" + q))
+        try:
+            dados = json.loads(http("https://api.travelpayouts.com/aviasales/v3/prices_for_dates?" + q))
+        except urllib.error.HTTPError as err:
+            print("Erro Travelpayouts", mes, err.code, err.read().decode(errors="ignore")[:300])
+            continue
         for v in dados.get("data", []):
             if not v.get("return_at"):
                 continue
