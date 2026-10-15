@@ -1,5 +1,11 @@
 {
-  "aeroporto_saida": "GRU",
+  "aeroportos_saida": [
+    "GRU",
+    "GIG",
+    "BSB"
+  ],
+  "data_inicio": "",
+  "data_fim": "",
   "meses_a_frente": 6,
   "dias_min": 4,
   "dias_max": 15,
