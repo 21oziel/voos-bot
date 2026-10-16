@@ -1,8 +1,8 @@
 {
   "aeroportos_saida": [
     "GRU",
-    "OPS",
-    "CGB"
+    "GIG",
+    "BSB"
   ],
   "data_inicio": "",
   "data_fim": "",
@@ -29,5 +29,10 @@
     "smiles",
     "latam pass",
     "azul fidelidade"
+  ],
+  "somente_companhias": [
+    "LATAM",
+    "GOL",
+    "Azul"
   ]
 }

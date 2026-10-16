@@ -29,6 +29,29 @@ CREATE TABLE IF NOT EXISTS avisados(chave TEXT PRIMARY KEY);
 
 OFERTAS, PROMOS = [], []
 
+COMPANHIAS = {"LA": "LATAM", "JJ": "LATAM", "G3": "GOL", "AD": "Azul"}
+PERMITIDAS = {n.lower() for n in CFG.get("somente_companhias", ["LATAM", "GOL", "Azul"])}
+API_PRECOS = "https://api.travelpayouts.com/aviasales/v3/prices_for_dates?"
+
+def cia_nome(cod):
+    return COMPANHIAS.get(cod, cod)
+
+def cia_ok(cod, permitidas=None):
+    p = PERMITIDAS if permitidas is None else permitidas
+    return not p or cia_nome(cod).lower() in p
+
+def consulta(params):
+    params = dict(params, token=CFG["travelpayouts_token"])
+    for limite in (1000, 100):
+        params["limit"] = limite
+        try:
+            return json.loads(http(API_PRECOS + urllib.parse.urlencode(params)))
+        except urllib.error.HTTPError as err:
+            print("Erro Travelpayouts", err.code, err.read().decode(errors="ignore")[:300])
+            if err.code != 400:
+                break
+    return {}
+
 def http(url, data=None):
     req = urllib.request.Request(url, data=data, headers={"User-Agent": "Mozilla/5.0 voos-bot"})
     with urllib.request.urlopen(req, timeout=30) as r:
@@ -65,19 +88,13 @@ def meses():
             y, m = y + 1, 1
 
 def buscar_dinheiro():
-    voos = []
+    melhores = {}
     for orig in AEROPORTOS:
         for mes in meses():
-            q = urllib.parse.urlencode({
-                "origin": orig, "departure_at": mes, "one_way": "false", "unique": "true",
-                "sorting": "price", "limit": 100, "currency": "brl", "token": CFG["travelpayouts_token"]})
-            try:
-                dados = json.loads(http("https://api.travelpayouts.com/aviasales/v3/prices_for_dates?" + q))
-            except urllib.error.HTTPError as err:
-                print("Erro Travelpayouts", orig, mes, err.code, err.read().decode(errors="ignore")[:300])
-                continue
+            dados = consulta({"origin": orig, "departure_at": mes, "one_way": "false", "unique": "false",
+                              "sorting": "price", "currency": "brl"})
             for v in dados.get("data", []):
-                if not v.get("return_at"):
+                if not v.get("return_at") or not cia_ok(v.get("airline", "")):
                     continue
                 ida, volta = v["departure_at"][:10], v["return_at"][:10]
                 if ida < INICIO or volta > FIM:
@@ -86,10 +103,13 @@ def buscar_dinheiro():
                 if not CFG["dias_min"] <= dias <= CFG["dias_max"]:
                     continue
                 lk = v.get("link", "")
-                voos.append({"orig": orig, "dest": v["destination"], "preco": v["price"], "ida": ida,
-                             "volta": volta, "cia": v.get("airline", ""),
-                             "link": "https://www.aviasales.com" + lk if lk.startswith("/") else ""})
-    return voos
+                voo = {"orig": orig, "dest": v["destination"], "preco": v["price"], "ida": ida, "volta": volta,
+                       "cia": cia_nome(v.get("airline", "")),
+                       "link": "https://www.aviasales.com" + lk if lk.startswith("/") else ""}
+                chave = (orig, voo["dest"], voo["cia"], ida[:7])
+                if chave not in melhores or voo["preco"] < melhores[chave]["preco"]:
+                    melhores[chave] = voo
+    return list(melhores.values())
 
 def checar_dinheiro():
     rotas = {}
@@ -151,12 +171,17 @@ small{display:block;color:var(--mut);margin-top:4px}.up{color:var(--mut);font-si
 <h1>✈️ Voos baratos</h1><div class="up" id="up"></div>
 <div class="f">
 <div class="w"><label>Saindo de</label><select id="orig"></select></div>
+<div class="w"><label>Companhia</label><select id="cia"></select></div>
 <div><label>Ida a partir de</label><input type="date" id="de"></div>
 <div><label>Volta até</label><input type="date" id="ate"></div>
 <div class="w"><label><input type="checkbox" id="hot"> Mostrar só os 🔥 baratos</label></div>
 </div>
 <h2>Ida e volta mais baratas</h2><div id="lista"></div>
 <h2>💳 Promoções de pontos</h2>__PROMOS__
+<h2>Sites das companhias</h2>
+<a class="card" href="https://www.latamairlines.com/br/pt"><b>LATAM</b></a>
+<a class="card" href="https://www.voegol.com.br"><b>GOL</b></a>
+<a class="card" href="https://www.voeazul.com.br"><b>Azul</b></a>
 <script>
 const D=__DATA__;
 const $=id=>document.getElementById(id);
@@ -166,13 +191,15 @@ let saved={};try{saved=JSON.parse(localStorage.getItem('voos')||'{}')}catch(e){}
 $('up').textContent='Atualizado em '+D.atualizado;
 D.aeroportos.forEach(a=>{const o=document.createElement('option');o.value=a;o.textContent=a;$('orig').appendChild(o)});
 $('orig').value=D.aeroportos.includes(saved.orig)?saved.orig:D.aeroportos[0];
+['',...D.companhias].forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c||'Todas';$('cia').appendChild(o)});
+$('cia').value=D.companhias.includes(saved.cia)?saved.cia:'';
 $('de').value=saved.de||D.inicio;$('ate').value=saved.ate||D.fim;$('hot').checked=!!saved.hot;
 function render(){
-  const orig=$('orig').value,de=$('de').value,ate=$('ate').value,hot=$('hot').checked;
-  try{localStorage.setItem('voos',JSON.stringify({orig,de,ate,hot}))}catch(e){}
+  const orig=$('orig').value,cia=$('cia').value,de=$('de').value,ate=$('ate').value,hot=$('hot').checked;
+  try{localStorage.setItem('voos',JSON.stringify({orig,cia,de,ate,hot}))}catch(e){}
   const melhor={};
   D.voos.forEach(v=>{
-    if(v.orig!==orig||(de&&v.ida<de)||(ate&&v.volta>ate)||(hot&&!v.barato))return;
+    if(v.orig!==orig||(cia&&v.cia!==cia)||(de&&v.ida<de)||(ate&&v.volta>ate)||(hot&&!v.barato))return;
     if(!melhor[v.dest]||v.preco<melhor[v.dest].preco)melhor[v.dest]=v;
   });
   const lista=Object.values(melhor).sort((a,b)=>(b.barato-a.barato)||(a.preco-b.preco));
@@ -187,7 +214,7 @@ function render(){
     a.append(b,p,s);box.appendChild(a);
   });
 }
-['orig','de','ate','hot'].forEach(i=>$(i).addEventListener('change',render));
+['orig','cia','de','ate','hot'].forEach(i=>$(i).addEventListener('change',render));
 render();
 </script></body></html>"""
 
@@ -196,7 +223,7 @@ def gerar_site():
     out.mkdir(exist_ok=True)
     e = html.escape
     voos = sorted(OFERTAS, key=lambda o: o["preco"])[:800]
-    dados = {"aeroportos": AEROPORTOS, "inicio": INICIO, "fim": FIM,
+    dados = {"aeroportos": AEROPORTOS, "companhias": sorted({v["cia"] for v in voos}), "inicio": INICIO, "fim": FIM,
              "atualizado": datetime.now().strftime("%d/%m/%Y %H:%M"), "voos": voos}
     dados_js = json.dumps(dados, ensure_ascii=False).replace("</", "<\\/")
     promos = "".join(f'<a class="card" href="{e(p["link"])}"><b>{e(p["titulo"])}</b></a>' for p in PROMOS) \

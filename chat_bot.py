@@ -13,11 +13,11 @@ MESES = {"janeiro": 1, "jan": 1, "fevereiro": 2, "fev": 2, "marco": 3, "mar": 3,
          "maio": 5, "mai": 5, "junho": 6, "jun": 6, "julho": 7, "jul": 7, "agosto": 8, "ago": 8,
          "setembro": 9, "set": 9, "outubro": 10, "out": 10, "novembro": 11, "nov": 11, "dezembro": 12, "dez": 12}
 PARADAS = {"voo", "por", "uma", "com", "que", "dos", "das", "ida", "fim", "dia", "mes", "pra", "vou", "ver",
-           "tem", "max", "ate", "ajuda", "start", "help", "dias", "pro", "nao", "sim", "boa", "oi", "ola"}
+           "tem", "max", "ate", "gol", "ajuda", "start", "help", "dias", "pro", "nao", "sim", "boa", "oi", "ola"}
 
 HELP = ("Me diga de onde você quer sair e quando. Exemplos:\n"
         "• GRU 10/12 a 20/12\n• BSB em janeiro\n• GIG para LIS 5 a 15 de dezembro\n"
-        "• CGB 10/12 a 20/12 máximo 1500\n\n"
+        "• CGB 10/12 a 20/12 máximo 1500\n• GRU em janeiro latam (ou gol, azul)\n\n"
         "Sem datas, uso a janela do config. Sem aeroporto, uso o primeiro da sua lista.")
 
 def norm(s):
@@ -39,7 +39,7 @@ def fim_mes(ano, mes):
 
 def parse(texto):
     t = norm(texto)
-    r = {"orig": None, "dest": None, "ini": None, "fim": None, "teto": None}
+    r = {"orig": None, "dest": None, "ini": None, "fim": None, "teto": None, "cias": set()}
     m = re.search(r"(?:maximo|max|abaixo de|menos de|teto|ate r\$|r\$)\s*(\d[\d\.]*)", t)
     if m:
         r["teto"] = float(m.group(1).replace(".", ""))
@@ -76,6 +76,10 @@ def parse(texto):
                     ini = date.today()
                 r["ini"], r["fim"] = ini, fim_mes(resolve(1, mes).year, mes)
             t = t.replace(m3.group(0), " ")
+    for palavra in ("latam", "gol", "azul"):
+        if re.search(rf"\b{palavra}\b", t):
+            r["cias"].add(palavra)
+            t = re.sub(rf"\b{palavra}\b", " ", t)
     codigos = [c.upper() for c in re.findall(r"\b[a-z]{3}\b", t) if c not in PARADAS and c not in MESES]
     if codigos:
         r["orig"] = codigos[0]
@@ -93,29 +97,24 @@ def meses_de(ini, fim):
         if m > 12:
             y, m = y + 1, 1
 
-def buscar(orig, dest, ini, fim, teto):
+def buscar(orig, dest, ini, fim, teto, cias=None):
     achados = []
     for mes in meses_de(ini, fim):
-        p = {"origin": orig, "departure_at": mes, "one_way": "false", "sorting": "price",
-             "limit": 100, "currency": "brl", "token": vb.CFG["travelpayouts_token"]}
+        p = {"origin": orig, "departure_at": mes, "one_way": "false", "sorting": "price", "currency": "brl"}
         if dest:
             p["destination"] = dest
         else:
-            p["unique"] = "true"
-        try:
-            dados = json.loads(vb.http("https://api.travelpayouts.com/aviasales/v3/prices_for_dates?" + urllib.parse.urlencode(p)))
-        except urllib.error.HTTPError as e:
-            print("Erro Travelpayouts", e.code, e.read().decode(errors="ignore")[:200])
-            continue
+            p["unique"] = "false"
+        dados = vb.consulta(p)
         for v in dados.get("data", []):
-            if not v.get("return_at"):
+            if not v.get("return_at") or not vb.cia_ok(v.get("airline", ""), cias):
                 continue
             ida, volta = date.fromisoformat(v["departure_at"][:10]), date.fromisoformat(v["return_at"][:10])
             if ida < ini or volta > fim or (teto and v["price"] > teto):
                 continue
             lk = v.get("link", "")
             achados.append({"dest": v["destination"], "preco": v["price"], "ida": ida, "volta": volta,
-                            "cia": v.get("airline", ""),
+                            "cia": vb.cia_nome(v.get("airline", "")),
                             "link": "https://www.aviasales.com" + lk if lk.startswith("/") else ""})
     if dest:
         vistos, lista = set(), []
@@ -141,8 +140,10 @@ def responder(texto):
     fim = q["fim"] or date.fromisoformat(vb.FIM)
     if fim < ini:
         return "Não entendi as datas. Exemplo: GRU 10/12 a 20/12"
-    voos = buscar(orig, q["dest"], ini, fim, q["teto"])
+    voos = buscar(orig, q["dest"], ini, fim, q["teto"], q["cias"] or None)
     cab = f"✈️ {orig} → {q['dest'] or 'qualquer destino'} · {ini:%d/%m} a {fim:%d/%m}"
+    if q["cias"]:
+        cab += " · " + "/".join(sorted(c.upper() if c == "gol" else c.capitalize() for c in q["cias"]))
     if q["teto"]:
         cab += f" · até R$ {vb.brl(q['teto'])}"
     if not voos:
